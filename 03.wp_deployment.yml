@@ -1,0 +1,144 @@
+# 其中initcontainer用于将代码cp到WordPress目录里面，还有一个logtail
+# 的容器，用于收集日志到阿里云的sls，一个nginx+php的容器
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app-name: wordpress2
+  name: wordpress2
+  namespace: wordpress
+spec:
+  revisionHistoryLimit: 5
+  replicas: 2
+  selector:
+    matchLabels:
+      app-name: wordpress2
+  strategy:
+    rollingUpdate: #滚动更新的策略
+      maxSurge: 1 #一次最多更新一个
+      maxUnavailable: 1 #最多只能有一个pod不可用了只有，就需要停止更新
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app-name: wordpress2
+    spec:
+      shareProcessNamespace: true
+      imagePullSecrets:
+        - name: myregistrykey
+      initContainers:
+        #用于挂载代码
+      - name: wordpress-code
+        image: wordpress:20200828_04 #wordpress 代码镜像
+        command: ["cp","-r","/data/wordpress","/data/wp/"]
+        volumeMounts:
+        - name: wordpress-code-volume
+          mountPath: /data/wp
+        imagePullPolicy: Always
+      containers:
+        #使用sidecar模式利用logtail收集日志
+      - name: logtail
+        image: registry-vpc.cn-shanghai.aliyuncs.com/log-service/logtail:latest
+        command:
+        - sh
+        - -c
+        - /usr/local/ilogtail/run_logtail.sh 10
+        livenessProbe:
+          exec:
+            command:
+            - /etc/init.d/ilogtaild
+            - status
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        resources:
+          limits:
+            memory: 512Mi
+          requests:
+            cpu: 10m
+            memory: 30Mi
+        env:
+          #### base config
+          - name: ALIYUN_LOGTAIL_USER_ID
+            value: "xxxxxxx"
+          - name: ALIYUN_LOGTAIL_USER_DEFINED_ID
+            value: k8s-group-custom-wordpress
+          - name: ALIYUN_LOGTAIL_CONFIG
+            value: /etc/ilogtail/conf/cn-shanghai/ilogtail_config.json
+          #### env tags config
+          - name: "ALIYUN_LOG_ENV_TAGS"
+            value: "_pod_name_|_pod_ip_|_namespace_|_node_name_|_node_ip_"
+          - name: "_pod_name_"
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: "_pod_ip_"
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+          - name: "_namespace_"
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: "_node_name_"
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName
+          - name: "_node_ip_"
+            valueFrom:
+              fieldRef:
+                fieldPath: status.hostIP
+        imagePullPolicy: Always
+        volumeMounts:
+          - mountPath: /var/log/nginx
+            name: log-dir-volume
+        #nginx-fpm
+      - name: wordpress-nginx
+        image: nginx-php-fpm-pllsxyc:7.1.27_1.18.0
+        imagePullPolicy: Always
+        # 对nginx和php-fpm进行健康监测，不通过的话，销毁pod重新调度。
+        ports:
+        - containerPort: 33333
+          name: nginx-wp-port
+          protocol: TCP
+        - containerPort: 9000
+          name: php-fpm-port
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            #php-fpm状态检查
+            path: /status
+            port: 8888
+            httpHeaders:
+            - name: x-fpm-status
+              value: success
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        volumeMounts:
+        - name: wordpress-code-volume
+          mountPath: /usr/share/nginx/
+        - name: wordpress-nginx-config-volume
+          mountPath: /etc/nginx/conf.d
+        - name: wordpress-php-config-volume
+          mountPath: /usr/share/nginx/wordpress/wp-config.php
+          subPath: wp-config.php
+        - name: wp2-pvc
+          mountPath: /usr/share/nginx/wordpress/wp-content/uploads
+          subPath: wp2-uploads
+        - name: log-dir-volume
+          mountPath: /tmp/
+      volumes:
+        - name: wordpress-nginx-config-volume
+          configMap:
+            name: wordpress2-nginx-conf-20200830-01
+        - name: wordpress-php-config-volume
+          configMap:
+            name: wordpress2-php-config-20200830-01
+        - name: wordpress-code-volume
+          emptyDir: {}
+        - name: wp2-pvc
+          persistentVolumeClaim:
+            claimName: wp-pvc
+        - name: log-dir-volume
+          emptyDir: {}
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always

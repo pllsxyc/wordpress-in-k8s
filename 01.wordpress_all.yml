@@ -1,0 +1,188 @@
+#wordpress namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: wordpress
+---
+#wordpress.conf configMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wordpress-nginx-conf-20200829-03
+  namespace: wordpress
+data:
+  wordpress.conf: |
+    server{
+        listen 33333;
+        server_name _;
+        access_log /tmp/wordpress_access.log json;
+        error_log /tmp/wordpress_error.log;
+        root /usr/share/nginx/wordpress;
+        index index.php index.html;
+        location ~ [^/]\.php(/|$) {
+            include fastcgi_params;
+            fastcgi_hide_header x-powered-by;
+            fastcgi_pass   127.0.0.1:9000;
+            fastcgi_split_path_info ^(.+\.php)(/.*)$;
+            fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+            fastcgi_param DOCUMENT_ROOT $realpath_root;
+            fastcgi_param HTTPS off;
+        }
+
+    }
+  fpm-status.conf: |
+   server {
+       listen  8888 default_server;
+       server_name _;
+       location ~ ^/(status|ping)$ {
+            add_header x-fpm-status "success";
+            include fastcgi_params;
+            fastcgi_pass 127.0.0.1:9000;
+            fastcgi_param SCRIPT_FILENAME $fastcgi_script_name;
+        }
+    } 
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wordpress-php-config-20200828-02
+  namespace: wordpress
+data:
+  wp-config.php: |
+    <?php
+    /**
+     * The base configuration for WordPress
+     *
+     * The wp-config.php creation script uses this file during the
+     * installation. You don't have to use the web site, you can
+     * copy this file to "wp-config.php" and fill in the values.
+     *
+     * This file contains the following configurations:
+     *
+     * * MySQL settings
+     * * Secret keys
+     * * Database table prefix
+     * * ABSPATH
+     *
+     * @link https://wordpress.org/support/article/editing-wp-config-php/
+     *
+     * @package WordPress
+     */
+
+    // ** MySQL settings - You can get this info from your web host ** //
+    /** The name of the database for WordPress */
+    $_SERVER['HTTPS'] = 'on';
+    define('FORCE_SSL_LOGIN', true);
+    define('FORCE_SSL_ADMIN', true);
+    define( 'DB_NAME', 'wordpress' );
+
+    /** MySQL database username */
+    define( 'DB_USER', 'wordpress' );
+
+    /** MySQL database password */
+    define( 'DB_PASSWORD', 'xxxxxxx' );
+
+    /** MySQL hostname */
+    define( 'DB_HOST', '192.168.1.8' );
+
+    /** Database Charset to use in creating database tables. */
+    define( 'DB_CHARSET', 'utf8' );
+
+    /** The Database Collate type. Don't change this if in doubt. */
+    define( 'DB_COLLATE', '' );
+
+    /**#@+
+     * Authentication Unique Keys and Salts.
+     *
+     * Change these to different unique phrases!
+     * You can generate these using the {@link https://api.wordpress.org/secret-key/1.1/salt/ WordPress.org secret-key service}
+     * You can change these at any point in time to invalidate all existing cookies. This will force all users to have to log in again.
+     *
+     * @since 2.6.0
+     */
+    define( 'AUTH_KEY',         'put your unique phrase here' );
+    define( 'SECURE_AUTH_KEY',  'put your unique phrase here' );
+    define( 'LOGGED_IN_KEY',    'put your unique phrase here' );
+    define( 'NONCE_KEY',        'put your unique phrase here' );
+    define( 'AUTH_SALT',        'put your unique phrase here' );
+    define( 'SECURE_AUTH_SALT', 'put your unique phrase here' );
+    define( 'LOGGED_IN_SALT',   'put your unique phrase here' );
+    define( 'NONCE_SALT',       'put your unique phrase here' );
+
+    /**#@-*/
+
+    /**
+     * WordPress Database Table prefix.
+     *
+     * You can have multiple installations in one database if you give each
+     * a unique prefix. Only numbers, letters, and underscores please!
+     */
+    $table_prefix = 'wp_';
+
+    /**
+     * For developers: WordPress debugging mode.
+     *
+     * Change this to true to enable the display of notices during development.
+     * It is strongly recommended that plugin and theme developers use WP_DEBUG
+     * in their development environments.
+     *
+     * For information on other constants that can be used for debugging,
+     * visit the documentation.
+     *
+     * @link https://wordpress.org/support/article/debugging-in-wordpress/
+     */
+    define( 'WP_DEBUG', false );
+
+    /* That's all, stop editing! Happy publishing. */
+
+    /** Absolute path to the WordPress directory. */
+    if ( ! defined( 'ABSPATH' ) ) {
+        define( 'ABSPATH', __DIR__ . '/' );
+    }
+
+    /** Sets up WordPress vars and included files. */
+    require_once ABSPATH . 'wp-settings.php';
+
+---
+#ingress tls 证书 secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: wordpress-tls
+  namespace: wordpress
+type: kubernetes.io/tls
+data:
+  tls.crt: # 这里是ingress tls的crt
+  tls.key: # 这里是ingress tls的key
+
+---
+#harbor pull secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: myregistrykey
+  namespace: wordpress
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: xxxxxx #这里是harbor 账号密码文件
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app-name: wordpress
+  name: wordpress-service
+  namespace: wordpress
+spec:
+  clusterIP: None
+  ports:
+  - port: 33333
+    name: port-33333
+    protocol: TCP
+    targetPort: 33333
+  selector:
+    app-name: wordpress
+  sessionAffinity: None
+  type: ClusterIP
+

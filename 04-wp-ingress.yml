@@ -1,0 +1,20 @@
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: wordpress-ingress
+  namespace: wordpress
+  annotations:
+    kubernetes.io/ingress.class: "nginx-pllsxyc"
+spec:
+  tls:
+  - hosts:
+    - wordpress.starbugs.net
+    secretName: wordpress-tls
+  rules:
+  - host: wordpress.starbugs.net
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: wordpress-service
+          servicePort: 33333

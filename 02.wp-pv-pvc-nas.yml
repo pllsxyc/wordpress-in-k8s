@@ -1,0 +1,36 @@
+# 将wordpress上传的文件挂载到阿里云的nas上面
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-nas
+  labels:
+    alicloud-pvname: pv-nas
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteMany
+  csi:
+    driver: nasplugin.csi.alibabacloud.com
+    volumeHandle: pv-nas
+    volumeAttributes:
+      server: "xxxxxxxxxx"
+      path: "/"
+  mountOptions:
+  - nolock,tcp,noresvport
+  - vers=3
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: wp-pvc
+  namespace: wordpress
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 5Gi
+  selector:
+    matchLabels:
+      alicloud-pvname: pv-nas
